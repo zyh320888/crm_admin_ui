@@ -12,7 +12,7 @@ import {
   TeamOutlined, SettingOutlined, AppstoreOutlined,
   BarChartOutlined, FileTextOutlined, BellOutlined,
   BgColorsOutlined, SkinOutlined
-} from 'https://esm.sh/@ant-design/icons@5.5.2';
+} from 'https://esm.sh/@ant-design/icons@5.5.2?external=@ant-design/colors';
 import { 
   QueryClient, 
   QueryClientProvider, 
