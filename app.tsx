@@ -5,7 +5,7 @@ import {
   DatePicker, Card, Statistic, Divider, Typography, 
   Space, Tag, Modal, message, Spin, Row, Col, Breadcrumb,
   Empty, Tabs, Avatar, List, Switch, Radio, ConfigProvider, theme
-} from 'https://esm.sh/antd@5.23.0';
+} from 'https://esm.sh/*antd@5.24.3?bundle=false';
 import {
   UserOutlined, PhoneOutlined, MailOutlined, 
   EditOutlined, PlusOutlined, DashboardOutlined,
