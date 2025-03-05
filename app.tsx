@@ -5,7 +5,7 @@ import {
   DatePicker, Card, Statistic, Divider, Typography, 
   Space, Tag, Modal, message, Spin, Row, Col, Breadcrumb,
   Empty, Tabs, Avatar, List, Switch, Radio, ConfigProvider, theme
-} from 'https://esm.sh/antd@5.24.3?external=@ant-design/colors,@ant-design/fast-color';
+} from 'https://esm.sh/antd@5.24.3?external=@ant-design/colors,@ant-design/fast-color,@rc-component/qrcode';
 import {
   UserOutlined, PhoneOutlined, MailOutlined, 
   EditOutlined, PlusOutlined, DashboardOutlined,
