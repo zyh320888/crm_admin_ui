@@ -26,6 +26,14 @@ import weekday from 'https://esm.sh/dayjs@1.11.10/plugin/weekday';
 import localeData from 'https://esm.sh/dayjs@1.11.10/plugin/localeData';
 import { APIClient } from 'https://esm.sh/@d8d-appcontainer/api@3.0.39';
 
+interface Customer {
+  id?: number;
+  name: string;
+  email: string;
+  phone: string;
+  status: string;
+  lastContact: string;
+}
 
 // 设置 dayjs 语言和插件
 dayjs.extend(weekday);
@@ -127,7 +135,7 @@ const fetchBackgroundImage = async () => {
 
 
 // 客户列表组件
-const CustomerList = ({ onEdit }) => {
+const CustomerList = ({ onEdit, currentTheme }) => {
   const { data: customers, isLoading } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
@@ -148,8 +156,8 @@ const CustomerList = ({ onEdit }) => {
   });
 
   console.log("customers",customers);
-  // 获取当前主题模式 - 使用ConfigProvider的context而不是直接调用useToken
-  const isDarkMode = React.useContext(ConfigProvider.ConfigContext)?.theme?.isDark || false;
+  // 获取当前主题模式
+  const isDarkMode = currentTheme.mode === 'dark';
 
   const columns = [
     {
@@ -224,11 +232,11 @@ const CustomerList = ({ onEdit }) => {
 };
 
 // 客户表单组件
-const CustomerForm = ({ customer, onSave, onCancel }) => {
+const CustomerForm = ({ customer, onSave, onCancel, currentTheme }) => {
   const [form] = Form.useForm();
   
-  // 获取当前主题模式 - 使用ConfigProvider的context而不是直接调用useToken
-  const isDarkMode = React.useContext(ConfigProvider.ConfigContext)?.theme?.isDark || false;
+  // 获取当前主题模式
+  const isDarkMode = currentTheme.mode === 'dark';
   
   useEffect(() => {
     if (customer) {
@@ -335,7 +343,7 @@ const CustomerForm = ({ customer, onSave, onCancel }) => {
 };
 
 // 仪表盘组件
-const Dashboard = () => {
+const Dashboard = ({ currentTheme }) => {
   const { data: dashboardData, isLoading } = useQuery({
     queryKey: ['customers-stats'],
     queryFn: async () => {
@@ -384,8 +392,8 @@ const Dashboard = () => {
     time: activity.update_time
   }));
 
-  // 获取当前主题模式 - 使用ConfigProvider的context而不是直接调用useToken
-  const isDarkMode = React.useContext(ConfigProvider.ConfigContext)?.theme?.isDark || false;
+  // 获取当前主题模式
+  const isDarkMode = currentTheme.mode === 'dark';
   const primaryColor = React.useContext(ConfigProvider.ConfigContext)?.theme?.token?.colorPrimary || '#1677ff';
 
   return (
@@ -467,8 +475,8 @@ const Dashboard = () => {
 
 // 设置页面组件
 const Settings = ({ currentTheme, onThemeChange }) => {
-  // 获取当前主题模式 - 使用ConfigProvider的context而不是直接调用useToken
-  const isDarkMode = React.useContext(ConfigProvider.ConfigContext)?.theme?.isDark || false;
+  // 获取当前主题模式
+  const isDarkMode = currentTheme.mode === 'dark';
   
   return (
     <div>
@@ -663,9 +671,9 @@ const App = () => {
 
   // 保存客户信息的mutation
   const saveMutation = useMutation({
-    mutationFn: async (customer) => {
+    mutationFn: async (customer: Customer) => {
       const apiClient = await getApiClient();
-      if (selectedCustomer) {
+      if (selectedCustomer && customer.id) {
         // 更新现有客户
         await apiClient.database.table('customers')
           .where('id', customer.id)
@@ -753,7 +761,7 @@ const App = () => {
   const renderContent = () => {
     switch (currentView) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard currentTheme={currentTheme} />;
       case 'customers':
         return customerView === 'list' ? (
           <>
@@ -767,13 +775,14 @@ const App = () => {
                 添加客户
               </Button>
             </div>
-            <CustomerList onEdit={handleEdit} />
+            <CustomerList onEdit={handleEdit} currentTheme={currentTheme} />
           </>
         ) : (
           <CustomerForm 
             customer={selectedCustomer} 
             onSave={handleSave} 
             onCancel={handleCancel} 
+            currentTheme={currentTheme} 
           />
         );
       case 'settings':
