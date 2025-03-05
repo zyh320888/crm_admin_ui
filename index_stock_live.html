@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>股票投资直播课堂</title>
+  
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@19.0.0",
+        "react-dom": "https://esm.sh/react-dom@19.0.0",
+        "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+        "@tanstack/react-query": "https://esm.sh/@tanstack/react-query@5.67.1",
+        "axios": "https://esm.sh/axios@1.6.2",
+        "@d8d-appcontainer/api": "https://esm.sh/@d8d-appcontainer/api@3.0.39"
+      }
+    }
+  </script>
+  
+  <script type="module" src="https://esm.sh/run"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <style>
+    /* 自定义样式 */
+    .course-grid {
+      display: grid;
+      grid-template-columns: repeat(1, 1fr);
+      gap: 1rem;
+      padding: 1rem;
+    }
+    
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: white;
+      box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+      z-index: 50;
+    }
+
+    /* 直播窗口样式 */
+    .live-window {
+      position: relative;
+      width: 100%;
+      background: #000;
+      aspect-ratio: 16/9;
+    }
+
+    /* 聊天区域样式 */
+    .chat-area {
+      height: calc(100vh - 400px);
+      overflow-y: auto;
+    }
+
+    /* 加载动画 */
+    .loader {
+      border-top-color: #3b82f6;
+      -webkit-animation: spinner 1.5s linear infinite;
+      animation: spinner 1.5s linear infinite;
+    }
+    @-webkit-keyframes spinner {
+      0% { -webkit-transform: rotate(0deg); }
+      100% { -webkit-transform: rotate(360deg); }
+    }
+    @keyframes spinner {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* 页面切换动画 */
+    .page-transition {
+      transition: all 0.3s ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    import React, { useState, useEffect, useRef } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { QueryClient, QueryClientProvider, useQuery, useMutation } from '@tanstack/react-query';
+    import { APIClient } from '@d8d-appcontainer/api';
+
+    const queryClient = new QueryClient();
+    let apiClient = null;
+
+    const getApiClient = async () => {
+      if (!apiClient) {
+        apiClient = await APIClient.getInstance({
+          scope: 'user',
+          config: {
+            serverUrl: 'https://app-server.d8d.fun',
+            workspaceKey: 'ws_mphxpy6prf9',
+            type: 'http'
+          }
+        });
+      }
+      return apiClient;
+    };
+
+    // 初始化数据库
+    const initDatabase = async () => {
+      const apiClient = await getApiClient();
+      try {
+        // 创建课程表
+        await apiClient.database.schema.createTable('courses', (table) => {
+          table.increments('id').primary();
+          table.string('title').notNullable();
+          table.text('description');
+          table.string('instructor');
+          table.string('cover_image');
+          table.boolean('is_live').defaultTo(false);
+          table.timestamp('start_time');
+          table.decimal('price', 10, 2);
+          table.timestamps(true, true);
+        });
+
+        // 创建聊天消息表
+        await apiClient.database.schema.createTable('chat_messages', (table) => {
+          table.increments('id').primary();
+          table.integer('course_id').notNullable();
+          table.string('user_name').notNullable();
+          table.text('message').notNullable();
+          table.timestamps(true, true);
+        });
+
+        // 插入示例数据
+        await apiClient.database.insert('courses', [
+          {
+            title: '股市技术分析入门',
+            description: '学习K线、均线等基本技术分析工具',
+            instructor: '张教授',
+            cover_image: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3',
+            is_live: true,
+            start_time: apiClient.database.fn.now(),
+            price: 199.00
+          },
+          {
+            title: '量化交易策略解析',
+            description: '深入理解量化交易策略的制定与实施',
+            instructor: '李老师',
+            cover_image: 'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f',
+            is_live: false,
+            start_time: apiClient.database.raw('CURRENT_TIMESTAMP + INTERVAL 1 DAY'),
+            price: 299.00
+          }
+        ]);
+      } catch (error) {
+        console.log('表已存在或其他错误:', error);
+      }
+    };
+
+    // 直播窗口组件
+    const LiveWindow = ({ course }) => {
+      return (
+        <div className="live-window">
+          <div className="absolute inset-0 flex items-center justify-center text-white">
+            <div className="text-center">
+              <h2 className="text-xl font-bold mb-2">{course.title}</h2>
+              <p>讲师: {course.instructor}</p>
+              {course.is_live ? (
+                <span className="inline-block mt-2 px-3 py-1 bg-red-500 rounded-full text-sm">
+                  直播中
+                </span>
+              ) : (
+                <span className="inline-block mt-2 px-3 py-1 bg-gray-500 rounded-full text-sm">
+                  未开始
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // 聊天区域组件
+    const ChatArea = ({ courseId }) => {
+      const [messages, setMessages] = useState([]);
+      const [newMessage, setNewMessage] = useState('');
+      const chatEndRef = useRef(null);
+
+      const scrollToBottom = () => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      };
+
+      useEffect(() => {
+        scrollToBottom();
+      }, [messages]);
+
+      const sendMessage = () => {
+        if (!newMessage.trim()) return;
+        
+        const message = {
+          user_name: '用户',
+          message: newMessage,
+          timestamp: new Date()
+        };
+        
+        setMessages([...messages, message]);
+        setNewMessage('');
+      };
+
+      return (
+        <div className="bg-white rounded-lg shadow">
+          <div className="chat-area p-4">
+            {messages.map((msg, index) => (
+              <div key={index} className="mb-4">
+                <div className="flex items-start">
+                  <div className="bg-gray-100 rounded-lg p-3">
+                    <p className="font-bold text-sm">{msg.user_name}</p>
+                    <p className="text-gray-700">{msg.message}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+          <div className="border-t p-4">
+            <div className="flex">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="发送消息..."
+                className="flex-1 px-4 py-2 border rounded-l focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={sendMessage}
+                className="px-6 py-2 bg-blue-500 text-white rounded-r hover:bg-blue-600"
+              >
+                发送
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // 课程卡片组件
+    const CourseCard = ({ course, onClick }) => (
+      <div 
+        className="bg-white rounded-lg shadow overflow-hidden cursor-pointer"
+        onClick={() => onClick(course)}
+      >
+        <img 
+          src={course.cover_image} 
+          alt={course.title}
+          className="w-full h-48 object-cover"
+        />
+        <div className="p-4">
+          <div className="flex justify-between items-start">
+            <h3 className="text-lg font-semibold text-gray-800">{course.title}</h3>
+            {course.is_live && (
+              <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                直播中
+              </span>
+            )}
+          </div>
+          <p className="text-gray-600 mt-2">{course.description}</p>
+          <div className="mt-4 flex justify-between items-center">
+            <span className="text-blue-500 font-bold">¥{course.price}</span>
+            <span className="text-gray-500 text-sm">
+              讲师: {course.instructor}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+
+    // 直播页面
+    const LivePage = ({ course }) => {
+      return (
+        <div className="pb-16">
+          <LiveWindow course={course} />
+          <div className="p-4">
+            <h1 className="text-xl font-bold mb-4">{course.title}</h1>
+            <p className="text-gray-600 mb-4">{course.description}</p>
+            <ChatArea courseId={course.id} />
+          </div>
+        </div>
+      );
+    };
+
+    // 课程列表页面
+    const CoursesPage = ({ courses, onCourseClick }) => {
+      return (
+        <div className="pb-16">
+          <div className="course-grid">
+            {courses.map(course => (
+              <CourseCard 
+                key={course.id} 
+                course={course}
+                onClick={onCourseClick}
+              />
+            ))}
+          </div>
+        </div>
+      );
+    };
+
+    // 个人中心页面
+    const ProfilePage = () => {
+      const menuItems = [
+        { icon: "📚", title: "我的课程" },
+        { icon: "📝", title: "学习记录" },
+        { icon: "💰", title: "我的钱包" },
+        { icon: "⭐", title: "收藏课程" },
+        { icon: "⚙️", title: "设置" },
+        { icon: "❓", title: "帮助中心" }
+      ];
+
+      return (
+        <div className="pb-16">
+          <div className="bg-blue-500 text-white p-6">
+            <div className="flex items-center">
+              <div className="w-16 h-16 bg-white rounded-full overflow-hidden">
+                <img
+                  src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e"
+                  alt="头像"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div className="ml-4">
+                <h2 className="text-xl font-bold">用户名</h2>
+                <p className="text-blue-200">会员等级: VIP会员</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white mt-4">
+            {menuItems.map((item, index) => (
+              <div
+                key={index}
+                className="flex items-center p-4 border-b"
+              >
+                <span className="text-xl mr-4">{item.icon}</span>
+                <span>{item.title}</span>
+                <span className="ml-auto text-gray-400">›</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
+
+    // 底部导航组件
+    const BottomNav = ({ activeTab, setActiveTab }) => (
+      <div className="bottom-nav grid grid-cols-3 py-2">
+        <button 
+          onClick={() => setActiveTab('courses')}
+          className={`flex flex-col items-center ${activeTab === 'courses' ? 'text-blue-500' : 'text-gray-500'}`}
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+          </svg>
+          <span className="text-xs">课程</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('live')}
+          className={`flex flex-col items-center ${activeTab === 'live' ? 'text-blue-500' : 'text-gray-500'}`}
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          <span className="text-xs">直播</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('profile')}
+          className={`flex flex-col items-center ${activeTab === 'profile' ? 'text-blue-500' : 'text-gray-500'}`}
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+          <span className="text-xs">我的</span>
+        </button>
+      </div>
+    );
+
+    // 主应用组件
+    const App = () => {
+      const [activeTab, setActiveTab] = useState('courses');
+      const [selectedCourse, setSelectedCourse] = useState(null);
+      
+      const { data: courses, isLoading } = useQuery({
+        queryKey: ['courses'],
+        queryFn: async () => {
+          const apiClient = await getApiClient();
+          return apiClient.database.table('courses').select('*');
+        }
+      });
+
+      useEffect(() => {
+        initDatabase();
+      }, []);
+
+      if (isLoading) {
+        return (
+          <div className="flex justify-center items-center h-screen">
+            <div className="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12"></div>
+          </div>
+        );
+      }
+
+      const renderContent = () => {
+        if (activeTab === 'live' && selectedCourse) {
+          return <LivePage course={selectedCourse} />;
+        }
+
+        switch (activeTab) {
+          case 'courses':
+            return <CoursesPage 
+              courses={courses} 
+              onCourseClick={(course) => {
+                setSelectedCourse(course);
+                setActiveTab('live');
+              }} 
+            />;
+          case 'profile':
+            return <ProfilePage />;
+          default:
+            return null;
+        }
+      };
+
+      return (
+        <div className="min-h-screen">
+          {/* 顶部搜索栏 */}
+          <div className="sticky top-0 bg-white shadow-sm p-4 z-40">
+            <div className="relative">
+              <input
+                type="search"
+                placeholder="搜索课程..."
+                className="w-full px-4 py-2 rounded-full bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <svg className="w-5 h-5 absolute right-3 top-2.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+          </div>
+
+          {/* 主内容区域 */}
+          {renderContent()}
+
+          {/* 底部导航 */}
+          <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+        </div>
+      );
+    };
+
+    // 渲染应用
+    const root = createRoot(document.getElementById('root'));
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+  </script>
+</body>
+</html> 

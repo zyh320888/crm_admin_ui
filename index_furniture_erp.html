@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>家具定制生产ERP系统</title>
+  
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@19.0.0",
+        "react-dom": "https://esm.sh/react-dom@19.0.0",
+        "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+        "antd": "https://esm.sh/antd?standalone",
+        "@ant-design/icons": "https://esm.sh/@ant-design/icons?standalone",
+        "@tanstack/react-query": "https://esm.sh/@tanstack/react-query@5.67.1",
+        "axios": "https://esm.sh/axios@1.6.2",
+        "dayjs": "https://esm.sh/dayjs@1.11.10",
+        "dayjs/locale/zh-cn": "https://esm.sh/dayjs@1.11.10/locale/zh-cn",
+        "dayjs/plugin/weekday": "https://esm.sh/dayjs@1.11.10/plugin/weekday",
+        "dayjs/plugin/localeData": "https://esm.sh/dayjs@1.11.10/plugin/localeData",
+        "@d8d-appcontainer/api": "https://esm.sh/@d8d-appcontainer/api@3.0.39"
+      }
+    }
+  </script>
+  
+  <script type="module" src="https://esm.sh/run"></script>
+  
+  <!-- 引入Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <style>
+    /* 保留原有动画和布局样式 */
+    .loader {
+      border-top-color: #3498db;
+      -webkit-animation: spinner 1.5s linear infinite;
+      animation: spinner 1.5s linear infinite;
+    }
+    @-webkit-keyframes spinner {
+      0% { -webkit-transform: rotate(0deg); }
+      100% { -webkit-transform: rotate(360deg); }
+    }
+    @keyframes spinner {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    #root {
+      padding: 0;
+      margin: 0;
+    }
+    
+    /* 生产主题颜色 */
+    .production-status-tag {
+      border-color: #fa8c16 !important;
+      color: #fa8c16 !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    import React, { useState, useEffect } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { 
+      Layout, Menu, Button, Table, Form, Input, Select, 
+      DatePicker, Card, Statistic, Divider, Typography, 
+      Space, Tag, Modal, Drawer, message, Spin, Row, Col, Breadcrumb,
+      Empty, Tabs, Avatar, List, Switch, Radio, ConfigProvider, theme,
+      Steps, InputNumber, TreeSelect
+    } from 'antd';
+    import {
+      ToolOutlined, DashboardOutlined, FormOutlined,
+      EditOutlined, PlusOutlined, DatabaseOutlined,
+      TeamOutlined, SettingOutlined, AppstoreOutlined,
+      BarChartOutlined, FileTextOutlined, ScheduleOutlined,
+      BgColorsOutlined, SkinOutlined, OrderedListOutlined
+    } from '@ant-design/icons';
+    import { 
+      QueryClient, 
+      QueryClientProvider, 
+      useQuery, 
+      useMutation 
+    } from '@tanstack/react-query';
+    import axios from 'axios';
+    import dayjs from 'dayjs';
+    import 'dayjs/locale/zh-cn';
+    import weekday from 'dayjs/plugin/weekday';
+    import localeData from 'dayjs/plugin/localeData';
+    import { APIClient } from '@d8d-appcontainer/api';
+
+    // 初始化 dayjs
+    dayjs.extend(weekday);
+    dayjs.extend(localeData);
+    dayjs.locale('zh-cn');
+
+    const { Header, Content, Footer, Sider } = Layout;
+    const { Title, Text } = Typography;
+    const { Step } = Steps;
+
+    let apiClient = null;
+
+    const getApiClient = async () => {
+      if (!apiClient) {
+        apiClient = await APIClient.getInstance({
+          scope: 'user',
+          config: {
+            serverUrl: 'https://app-server.d8d.fun',
+            workspaceKey: 'ws_mphxpy6prf9',
+            type: 'http'
+          }
+        });
+      }
+      return apiClient;
+    };
+
+    // 初始化数据库表结构
+    const initDatabase = async () => {
+      const apiClient = await getApiClient();
+      
+      try {
+        // 创建生产订单表
+        await apiClient.database.schema.createTable('production_orders', (table) => {
+          table.increments('id').primary();
+          table.string('order_number').notNullable();
+          table.string('product_type').notNullable();
+          table.json('dimensions').notNullable();
+          table.string('material').notNullable();
+          table.string('production_status').notNullable().defaultTo('design');
+          table.date('due_date').notNullable();
+          table.timestamps(true, true);
+        });
+
+        // 创建生产步骤表
+        await apiClient.database.schema.createTable('production_steps', (table) => {
+          table.increments('id').primary();
+          table.integer('order_id').notNullable();
+          table.integer('step_order').notNullable();
+          table.string('step_name').notNullable();
+          table.boolean('completed').notNullable().defaultTo(false);
+          table.timestamps(true, true);
+        });
+
+        // 插入示例生产步骤数据
+        await apiClient.database.insert('production_steps', [
+          { order_id: 1, step_order: 0, step_name: '设计', completed: true },
+          { order_id: 1, step_order: 1, step_name: '下料', completed: true },
+          { order_id: 1, step_order: 2, step_name: '加工', completed: false },
+          { order_id: 1, step_order: 3, step_name: '组装', completed: false },
+          { order_id: 1, step_order: 4, step_name: '质检', completed: false }
+        ]);
+
+        // 创建库存表
+        await apiClient.database.schema.createTable('inventory', (table) => {
+          table.increments('id').primary();
+          table.string('material_name').notNullable();
+          table.string('specification').notNullable();
+          table.float('stock').notNullable();
+          table.string('unit').notNullable();
+          table.timestamps(true, true);
+        });
+
+        // 插入初始库存数据
+        await apiClient.database.insert('inventory', [
+          { 
+            material_name: '橡木',
+            specification: '20mm厚度',
+            stock: 1500,
+            unit: '平方米'
+          },
+          { 
+            material_name: '不锈钢',
+            specification: '304级',
+            stock: 800,
+            unit: '米'
+          }
+        ]);
+
+        // 插入初始订单数据
+        await apiClient.database.insert('production_orders', [
+          {
+            order_number: 'PO-2024001',
+            product_type: 'cabinet',
+            dimensions: JSON.stringify({ width: 800, depth: 600, height: 900 }),
+            material: 'oak',
+            production_status: 'production',
+            due_date: '2024-03-15'
+          },
+          {
+            order_number: 'PO-2024002',
+            product_type: 'wardrobe',
+            dimensions: JSON.stringify({ width: 1800, depth: 600, height: 2200 }),
+            material: 'walnut',
+            production_status: 'design',
+            due_date: '2024-03-20'
+          }
+        ]);
+      } catch (error) {
+        console.log('数据库初始化错误:', error);
+      }
+    };
+
+    // 库存列表组件
+    const InventoryList = () => {
+      const { data: inventory, isLoading } = useQuery({
+        queryKey: ['inventory'],
+        queryFn: async () => {
+          const apiClient = await getApiClient();
+          return apiClient.database.table('inventory')
+            .select('*')
+            .orderBy('material_name', 'asc')
+            .execute();
+        }
+      });
+
+      const columns = [
+        { title: '材料名称', dataIndex: 'material_name', key: 'material_name' },
+        { title: '规格', dataIndex: 'specification', key: 'specification' },
+        { 
+          title: '库存量', 
+          dataIndex: 'stock', 
+          key: 'stock',
+          render: (text, record) => (
+            <span className={record.stock < 100 ? 'text-red-500' : ''}>
+              {text} {record.unit}
+            </span>
+          )
+        },
+        { title: '最后更新', dataIndex: 'updated_at', key: 'updated_at' }
+      ];
+
+      return (
+        <Card title="材料库存管理" bordered={false}>
+          <Table 
+            dataSource={inventory} 
+            columns={columns} 
+            rowKey="id"
+            pagination={{ pageSize: 8 }}
+          />
+        </Card>
+      );
+    };
+
+    // 生产跟踪组件
+    const ProductionTracking = ({ orderId }) => {
+      const { data: productionSteps } = useQuery({
+        queryKey: ['production_steps', orderId],
+        queryFn: async () => {
+          const apiClient = await getApiClient();
+          return apiClient.database.table('production_steps')
+            .where('order_id', orderId)
+            .select(['step_order', 'step_name', 'completed', 'updated_at'])
+            .orderBy('step_order', 'asc')
+            .execute();
+        }
+      });
+
+      const steps = [
+        { title: '设计', status: 'wait', description: '三维建模和图纸设计' },
+        { title: '下料', status: 'wait', description: '根据图纸切割材料' },
+        { title: '加工', status: 'wait', description: '表面处理和零件加工' },
+        { title: '组装', status: 'wait', description: '部件组装和结构固定' },
+        { title: '质检', status: 'wait', description: '质量检测和包装' },
+      ];
+
+      if (productionSteps && productionSteps.length > 0) {
+        productionSteps.forEach(step => {
+          if (steps[step.step_order]) {
+            steps[step.step_order].status = step.completed ? 'finish' : 'process';
+            steps[step.step_order].description = step.step_name;
+          }
+        });
+      } else {
+        steps.forEach(step => {
+          step.status = 'wait';
+          step.description += ' (未开始)';
+        });
+      }
+
+      return (
+        <Card title="生产进度跟踪" bordered={false}>
+          <Steps current={productionSteps?.length || 0} style={{ minWidth: 600 }}>
+            {steps.map((step, index) => (
+              <Step key={index} title={step.title} status={step.status} />
+            ))}
+          </Steps>
+        </Card>
+      );
+    };
+
+    // 生产订单列表组件
+    const OrderList = ({ onEdit, setTrackingVisible, setCurrentOrderId }) => {
+      const { data: orders, isLoading } = useQuery({
+        queryKey: ['production_orders'],
+        queryFn: async () => {
+          const apiClient = await getApiClient();
+          return apiClient.database.table('production_orders')
+            .select('*')
+            .orderBy('due_date', 'asc')
+            .execute();
+        }
+      });
+
+      const columns = [
+        {
+          title: '订单号',
+          dataIndex: 'order_number',
+          key: 'order_number',
+          render: text => <Text strong>{text}</Text>
+        },
+        {
+          title: '产品类型',
+          dataIndex: 'product_type',
+          key: 'product_type'
+        },
+        {
+          title: '生产状态',
+          dataIndex: 'production_status',
+          key: 'status',
+          render: status => (
+            <Tag color={
+              status === 'completed' ? 'success' :
+              status === 'production' ? 'processing' : 
+              status === 'shipped' ? 'blue' : 'default'
+            }>
+              {status === 'design' ? '设计中' : 
+               status === 'production' ? '生产中' :
+               status === 'shipped' ? '已发货' : status}
+            </Tag>
+          )
+        },
+        {
+          title: '交付日期',
+          dataIndex: 'due_date',
+          key: 'due_date'
+        },
+        {
+          title: '操作',
+          key: 'action',
+          render: (_, record) => (
+            <Space>
+              <Button size="small" onClick={() => onEdit(record)}>
+                编辑
+              </Button>
+              <Button 
+                size="small" 
+                type="primary"
+                onClick={() => {
+                  console.log("record",record);
+                  setTrackingVisible(true);
+                  setCurrentOrderId(record.id);
+                }}
+              >
+                生产跟踪
+              </Button>
+            </Space>
+          )
+        }
+      ];
+
+      return (
+        <Card title="生产订单列表" bordered={false}>
+          <Table 
+            dataSource={orders} 
+            columns={columns} 
+            rowKey="id"
+            pagination={{ pageSize: 8 }}
+          />
+        </Card>
+      );
+    };
+
+    // 生产订单表单组件
+    const OrderForm = ({ order, onSave }) => {
+      const [form] = Form.useForm();
+
+      useEffect(() => {
+        if (order) {
+          form.setFieldsValue(order);
+        } else {
+          form.resetFields();
+        }
+      }, [order, form]);
+
+      const onFinish = values => {
+        onSave({
+          ...values,
+          dimensions: JSON.stringify(values.dimensions)
+        });
+      };
+
+      return (
+        <Card title={order ? '编辑生产订单' : '新建生产订单'} bordered={false}>
+          <Form form={form} layout="vertical" onFinish={onFinish}>
+            <Form.Item label="产品类型" name="product_type" rules={[{ required: true }]}>
+              <Select>
+                <Select.Option value="cabinet">橱柜</Select.Option>
+                <Select.Option value="wardrobe">衣柜</Select.Option>
+                <Select.Option value="desk">书桌</Select.Option>
+              </Select>
+            </Form.Item>
+
+            <Form.Item label="材料选择" name="material" rules={[{ required: true }]}>
+              <TreeSelect
+                treeData={[
+                  {
+                    title: '木材',
+                    value: 'wood',
+                    children: [
+                      { title: '橡木', value: 'oak' },
+                      { title: '胡桃木', value: 'walnut' }
+                    ]
+                  },
+                  {
+                    title: '金属',
+                    value: 'metal',
+                    children: [
+                      { title: '不锈钢', value: 'stainless' },
+                      { title: '铝合金', value: 'aluminum' }
+                    ]
+                  }
+                ]}
+              />
+            </Form.Item>
+
+            <Form.Item label="尺寸规格 (mm)">
+              <Input.Group compact>
+                <Form.Item name={['dimensions', 'width']} noStyle>
+                  <InputNumber placeholder="宽度" style={{ width: '33%' }} />
+                </Form.Item>
+                <Form.Item name={['dimensions', 'depth']} noStyle>
+                  <InputNumber placeholder="深度" style={{ width: '33%' }} />
+                </Form.Item>
+                <Form.Item name={['dimensions', 'height']} noStyle>
+                  <InputNumber placeholder="高度" style={{ width: '33%' }} />
+                </Form.Item>
+              </Input.Group>
+            </Form.Item>
+
+            <Form.Item>
+              <Button type="primary" htmlType="submit">
+                保存订单
+              </Button>
+            </Form.Item>
+          </Form>
+        </Card>
+      );
+    };
+
+    // 主应用组件
+    const App = () => {
+      const [currentView, setCurrentView] = useState('dashboard');
+      const [selectedOrder, setSelectedOrder] = useState(null);
+      const [trackingVisible, setTrackingVisible] = useState(false);
+      const [currentOrderId, setCurrentOrderId] = useState(null);
+      const { defaultAlgorithm, darkAlgorithm } = theme;
+      const [currentTheme, setCurrentTheme] = useState(() => {
+        const savedTheme = localStorage.getItem('erp-theme');
+        return savedTheme ? JSON.parse(savedTheme) : { mode: 'light' };
+      });
+
+      // 保存主题设置
+      useEffect(() => {
+        localStorage.setItem('erp-theme', JSON.stringify(currentTheme));
+      }, [currentTheme]);
+
+      useEffect(() => {
+        initDatabase();
+      }, []);
+
+      return (
+        <ConfigProvider theme={{
+          algorithm: currentTheme.mode === 'dark' ? darkAlgorithm : defaultAlgorithm,
+          token: {
+            colorPrimary: '#1890ff',
+            borderRadius: 6,
+          },
+          components: {
+            Layout: {
+              headerBg: currentTheme.mode === 'dark' ? '#1f2937' : '#fff',
+              siderBg: currentTheme.mode === 'dark' ? '#111827' : '#001529',
+            },
+            Menu: {
+              darkItemBg: currentTheme.mode === 'dark' ? '#111827' : '#001529',
+            }
+          }
+        }}>
+          <Layout style={{ minHeight: '100vh' }}>
+            <Sider collapsible>
+              <div className="logo text-white p-4 text-lg font-bold">
+                家具生产ERP
+              </div>
+              <Menu
+                theme="dark"
+                mode="inline"
+                selectedKeys={[currentView]}
+                items={[
+                  { key: 'dashboard', icon: <DashboardOutlined />, label: '生产看板' },
+                  { key: 'orders', icon: <OrderedListOutlined />, label: '订单管理' },
+                  { key: 'inventory', icon: <DatabaseOutlined />, label: '库存管理' },
+                  { key: 'settings', icon: <SettingOutlined />, label: '系统设置' }
+                ]}
+                onSelect={({ key }) => setCurrentView(key)}
+              />
+            </Sider>
+
+            <Layout>
+              <Header style={{ background: '#fff', padding: 0 }}>
+                <Button 
+                  type="primary" 
+                  icon={<PlusOutlined />}
+                  onClick={() => {
+                    setCurrentView('order-form');
+                    setSelectedOrder(null);
+                  }}
+                  style={{ margin: '16px' }}
+                >
+                  新建订单
+                </Button>
+              </Header>
+              
+              <Content style={{ margin: '16px' }}>
+                {currentView === 'settings' && (
+                  <Card title="系统设置">
+                    <div className="space-y-4">
+                      <div>
+                        <h3 className="text-lg mb-2">主题设置</h3>
+                        <Radio.Group 
+                          value={currentTheme.mode} 
+                          onChange={e => setCurrentTheme({...currentTheme, mode: e.target.value})}
+                        >
+                          <Radio.Button value="light">浅色模式</Radio.Button>
+                          <Radio.Button value="dark">深色模式</Radio.Button>
+                        </Radio.Group>
+                      </div>
+                      
+                      <Divider />
+                      
+                      <div>
+                        <h3 className="text-lg mb-2">系统信息</h3>
+                        <p>版本: 1.0.0</p>
+                        <p>最后更新: 2024-03-04</p>
+                        <p>技术支持: D8D Furniture Solutions</p>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+                {currentView === 'dashboard' && (
+                  <Row gutter={16}>
+                    <Col span={8}>
+                      <Card title="本月生产进度">
+                        <Statistic title="已完成订单" value={45} suffix="/ 100" />
+                      </Card>
+                    </Col>
+                    <Col span={8}>
+                      <Card title="材料库存">
+                        <Statistic title="橡木库存" value={1500} suffix="平方米" />
+                      </Card>
+                    </Col>
+                    <Col span={8}>
+                      <Card title="设备状态">
+                        <Tag color="success">正常运转</Tag>
+                      </Card>
+                    </Col>
+                  </Row>
+                )}
+
+                {currentView === 'orders' && (
+                  <OrderList 
+                    onEdit={order => {
+                      setSelectedOrder(order);
+                      setCurrentView('order-form');
+                    }}
+                    setTrackingVisible={setTrackingVisible}
+                    setCurrentOrderId={setCurrentOrderId}
+                  />
+                )}
+
+                {currentView === 'inventory' && <InventoryList />}
+
+                {currentView === 'order-form' && (
+                  <OrderForm 
+                    order={selectedOrder}
+                    onSave={() => {
+                      setCurrentView('orders');
+                      setSelectedOrder(null);
+                    }}
+                  />
+                )}
+
+                <Drawer
+                  title="生产进度跟踪"
+                  width={800}
+                  visible={trackingVisible}
+                  onClose={() => setTrackingVisible(false)}
+                  bodyStyle={{ padding: 24 }}
+                  styles={{
+                    body: {
+                      borderRadius: 8,
+                    }
+                  }}
+                >
+                  <Spin spinning={!currentOrderId}>
+                    {currentOrderId && <ProductionTracking orderId={currentOrderId} />}
+                  </Spin>
+                </Drawer>
+              </Content>
+            </Layout>
+          </Layout>
+        </ConfigProvider>
+      );
+    };
+
+    // 渲染应用
+    const root = document.getElementById('root');
+    createRoot(root).render(
+      <QueryClientProvider client={new QueryClient()}>
+        <App />
+      </QueryClientProvider>
+    );
+  </script>
+</body>
+</html>
