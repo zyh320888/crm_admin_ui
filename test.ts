@@ -1,4 +1,4 @@
-import { Context } from 'https://esm.d8d.fun/hono@4.5.1'
+import { Context } from 'https://esm.d8d.fun/hono@4.7.4'
 
 // 定义接口返回数据类型
 interface ApiResponse<T = any> {
